@@ -72,15 +72,16 @@ public:
    std::atomic<uint64_t> height;
    std::mutex treeMutex; 
 
+private:
+   void destroyRecursive(NodeBase* node);
+
 public:
    OLC_BTree() {
       root = new BTreeLeaf();
       height = 1;
    }
 
-   ~OLC_BTree() {
-     
-   }
+   ~OLC_BTree();
 
    bool lookup(Key k, Payload& result);
    void upsert(Key k, Payload v);

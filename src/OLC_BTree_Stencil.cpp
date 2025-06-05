@@ -105,6 +105,25 @@ BTreeInner* BTreeInner::split(Key &sep) {
 // -------------------------------------------------------------------------------------
 // OLC_BTree Methods
 // -------------------------------------------------------------------------------------
+
+void OLC_BTree::destroyRecursive(NodeBase* node) {
+   if (!node) {
+      return;
+   }
+   if (node->type == NodeType::BTreeInner) {
+      auto* inner = static_cast<BTreeInner*>(node);
+      for (unsigned i = 0; i <= inner->count; ++i) {
+         destroyRecursive(inner->children[i]);
+      }
+   }
+   delete node;
+}
+
+OLC_BTree::~OLC_BTree() {
+   destroyRecursive(root.load(std::memory_order_acquire));
+   root.store(nullptr, std::memory_order_release);
+}
+
 bool OLC_BTree::lookup(Key k, Payload &result) {
    
    result = 0;
@@ -284,11 +303,10 @@ void OLC_BTree::upsert(Key k, Payload v) {
             parent_node->upgradeToWriteLockOrRestart(parent_version_before_lock, needRestart);
             if (needRestart) {
                bubble_up_restarted = true;
-             
                NodeBase* node_to_delete = right_child_of_promoted_key;
-          
-               if (node_to_delete && node_to_delete != root.load(std::memory_order_acquire)) {
+               if (node_to_delete) { // It's a new node from split, shouldn't be root.
                   delete node_to_delete;
+                  right_child_of_promoted_key = nullptr; // Avoid dangling pointer issues if it's used later before continue
                }
                break; 
             }
@@ -325,14 +343,16 @@ void OLC_BTree::upsert(Key k, Payload v) {
             if (!old_root || !right_child_of_promoted_key) {
                if (right_child_of_promoted_key) {
                   delete right_child_of_promoted_key;
+                  // right_child_of_promoted_key = nullptr; // Not strictly needed before continue
                }
                continue;
             }
             
             if (!makeRoot(key_to_promote, old_root, right_child_of_promoted_key)) {
-               
-               if (right_child_of_promoted_key && right_child_of_promoted_key != old_root) {
+               if (right_child_of_promoted_key) { // old_root is handled by makeRoot's CAS logic.
+                                              // right_child_of_promoted_key is the new unsed node.
                   delete right_child_of_promoted_key;
+                  // right_child_of_promoted_key = nullptr; // Not strictly needed before continue
                }
                continue; 
             }
